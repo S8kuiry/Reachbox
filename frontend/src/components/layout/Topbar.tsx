@@ -1,14 +1,13 @@
-import { LogOut, RefreshCw, Search, X } from 'lucide-react'
+import { LogOut,  Search, X } from 'lucide-react'
 import { initials } from '../../utils/format'
 import { useAuth } from '../../context/AuthContext'
 
 interface Props {
   search: string
   onSearch: (v: string) => void
-  onRefresh: () => void
 }
 
-export default function Topbar({ search, onSearch, onRefresh }: Props) {
+export default function Topbar({ search, onSearch,  }: Props) {
   const { user, logout } = useAuth()
 
   return (
@@ -37,14 +36,7 @@ export default function Topbar({ search, onSearch, onRefresh }: Props) {
           )}
         </div>
 
-        <button
-          onClick={onRefresh}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-neutral-200/80 bg-neutral-50/50 text-neutral-400 transition hover:border-neutral-300 hover:bg-white hover:text-neutral-700 shadow-2xs active:scale-95"
-          aria-label="Refresh workspace"
-          title="Refresh"
-        >
-          <RefreshCw size={14} />
-        </button>
+      
       </div>
 
       {/* Right: Profile & Account Controls */}

@@ -1,83 +1,185 @@
-import { Client } from '@elastic/elasticsearch'
-import { env } from '../config/env'
 
-export const esClient = new Client({
-  node: env.ELASTICSEARCH_URL,
-})
+import { elasticsearch } from '../config/elasticsearch'
+import { db } from '../db'
 
-const INDEX_NAME = 'emails'
+const EMAIL_INDEX = 'emails'
 
-/**
- * Ensures 'emails' index exists in Elasticsearch on boot.
- */
-export async function initElasticsearch() {
-  try {
-    const exists = await esClient.indices.exists({ index: INDEX_NAME })
-    if (!exists) {
-      await esClient.indices.create({
-        index: INDEX_NAME,
-        mappings: {
-          properties: {
-            id: { type: 'keyword' },
-            userId: { type: 'keyword' },
-            senderEmail: { type: 'keyword' },
-            recipient: { type: 'keyword' },
-            subject: { type: 'text' },
-            body: { type: 'text' },
-            status: { type: 'keyword' },
-            scheduledAt: { type: 'date' },
-            sentAt: { type: 'date' },
-          },
-        },
-      })
-      console.log('✅ Created Elasticsearch "emails" index')
-    }
-  } catch (err) {
-    console.error('⚠️ Elasticsearch init warning:', err)
+
+
+
+export async function initElasticsearch(): Promise<void> {
+  const exists = await elasticsearch.indices.exists({
+    index: EMAIL_INDEX,
+  })
+
+  if (exists) {
+    console.log(`ℹ️ Elasticsearch index "${EMAIL_INDEX}" already exists`)
+    return
   }
-}
 
-/**
- * Indexes an email into Elasticsearch for instant searchability.
- */
-export async function indexEmail(emailData: Record<string, any>) {
-  try {
-    await esClient.index({
-      index: INDEX_NAME,
-      id: emailData.id,
-      document: emailData,
-    })
-  } catch (err) {
-    console.error(`❌ Elasticsearch indexing failed for email ${emailData.id}:`, err)
-  }
-}
-
-/**
- * Full-text search on emails by query string for a specific user.
- */
-export async function searchEmails(userId: string, query: string) {
-  try {
-    const response = await esClient.search({
-      index: INDEX_NAME,
-      query: {
-        bool: {
-          must: [
-            { match: { userId } },
-            {
-              multi_match: {
-                query,
-                fields: ['subject', 'body', 'recipient', 'senderEmail'],
-                fuzziness: 'AUTO',
-              },
-            },
-          ],
-        },
+  await elasticsearch.indices.create({
+    index: EMAIL_INDEX,
+    mappings: {
+      properties: {
+        id: { type: 'keyword' },
+        ownerId: { type: 'keyword' },
+        sender: { type: 'keyword' },
+        recipients: { type: 'keyword' },
+        subject: { type: 'text' },
+        body: { type: 'text' },
+        status: { type: 'keyword' },
+        scheduledAt: { type: 'date' },
+        sentAt: { type: 'date' },
       },
+    },
+  })
+
+  console.log(`✅ Elasticsearch index "${EMAIL_INDEX}" created`)
+}
+
+export interface SearchableEmail {
+  id: string
+  ownerId: string
+  sender: string
+  recipients: string[]
+  subject: string
+  body: string
+  status: string
+  scheduledAt: Date | string
+  sentAt: Date | string | null
+}
+
+export async function indexEmail(email: SearchableEmail): Promise<void> {
+  await elasticsearch.index({
+    index: EMAIL_INDEX,
+    id: email.id,
+    document: {
+      id: email.id,
+      ownerId: email.ownerId,
+      sender: email.sender,
+      recipients: email.recipients,
+      subject: email.subject,
+      body: email.body,
+      status: email.status,
+      scheduledAt: email.scheduledAt,
+      sentAt: email.sentAt,
+    },
+    refresh: 'wait_for',
+  })
+}
+
+
+export async function indexExistingEmails(): Promise<void> {
+  const batchSize = 500
+  let cursor: string | undefined
+  let indexedCount = 0
+
+  while (true) {
+    const emails = await db.email.findMany({
+      take: batchSize,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      orderBy: { id: 'asc' },
     })
 
-    return response.hits.hits.map((hit) => hit._source)
-  } catch (err) {
-    console.error('❌ Elasticsearch search failed:', err)
-    return []
+    if (emails.length === 0) break
+
+    const operations = emails.flatMap((email) => [
+      { index: { _index: EMAIL_INDEX, _id: email.id } },
+      {
+        id: email.id,
+        ownerId: email.ownerId,
+        sender: email.sender,
+        recipients: email.recipients,
+        subject: email.subject,
+        body: email.body,
+        status: email.status,
+        scheduledAt: email.scheduledAt,
+        sentAt: email.sentAt,
+      },
+    ])
+
+    const result = await elasticsearch.bulk({
+      operations,
+      refresh: false,
+    })
+
+    if (result.errors) {
+      const failures = result.items.filter((item) => item.index?.error)
+      console.error('Some emails could not be indexed:', failures.slice(0, 5))
+      throw new Error(`Failed to index ${failures.length} emails`)
+    }
+
+    indexedCount += emails.length
+    cursor = emails[emails.length - 1].id
   }
+
+  await elasticsearch.indices.refresh({ index: EMAIL_INDEX })
+  console.log(`✅ Indexed ${indexedCount} existing emails`)
+}
+
+
+
+export async function updateIndexedEmail(
+  emailId: string,
+  updates: {
+    status: string
+    sentAt?: Date | string | null
+  }
+): Promise<void> {
+  await elasticsearch.update({
+    index: EMAIL_INDEX,
+    id: emailId,
+    doc: {
+      status: updates.status,
+      ...(updates.sentAt !== undefined && {
+        sentAt: updates.sentAt,
+      }),
+    },
+    retry_on_conflict: 3,
+  })
+}
+
+
+
+
+export async function searchEmails(
+  userId: string,
+  query: string
+) {
+  const result = await elasticsearch.search({
+    index: EMAIL_INDEX,
+    from: 0,
+    size: 50,
+    query: {
+      bool: {
+        filter: [
+          {
+            term: {
+              ownerId: userId,
+            },
+          },
+        ],
+        must: [
+          {
+            multi_match: {
+              query: query,
+              fields: [
+                'sender',
+                'recipients',
+                'subject^3',
+                'body',
+              ],
+              type: 'best_fields',
+              fuzziness: 'AUTO',
+            },
+          },
+        ],
+      },
+    },
+    sort: [
+      { scheduledAt: { order: 'desc' } },
+    ],
+  })
+
+  return result.hits.hits.map((hit) => hit._source)
 }

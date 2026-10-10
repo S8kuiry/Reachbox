@@ -78,17 +78,22 @@ emailRouter.get('/', requireAuth, async (req, res, next) => {
 })
 
 // GET /api/emails/search - Elasticsearch full-text query
+
 emailRouter.get('/search', requireAuth, async (req, res, next) => {
   try {
-    const { q } = req.query
-    if (!q || typeof q !== 'string') {
-      res.status(400).json({ error: 'Query parameter "q" is required' })
+    const query = String(req.query.q ?? '').trim()
+
+    if (!query) {
+      res.status(400).json({
+        error: 'Search query is required',
+      })
       return
     }
 
-    const results = await searchEmails(req.user!.id, q)
-    res.json({ query: q, results })
-  } catch (err) {
-    next(err)
+    const emails = await searchEmails(req.user!.id, query)
+
+    res.json({ emails })
+  } catch (error) {
+    next(error)
   }
 })

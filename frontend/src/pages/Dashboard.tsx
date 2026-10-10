@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Clock, Send } from 'lucide-react'
 import type { DashboardOutletContext, EmailJob } from '../types'
@@ -6,11 +6,16 @@ import Sidebar from '../components/layout/Sidebar'
 import Topbar from '../components/layout/Topbar'
 import ComposeModal from '../components/email/ComposeModal'
 import { useEmailFeed } from '../hooks/useEmails'
-import { toEmailJob } from '../services/emailService'
+import { toEmailJob, searchEmails as searchEmailsApi } from '../services/emailService'
 import { isScheduledStatus, isSentStatus } from '../types'
+import { useAuth } from '../context/AuthContext'
 
 export default function Dashboard() {
+  const { idToken } = useAuth()
   const [search, setSearch] = useState('')
+  const [searchResults, setSearchResults] = useState<EmailJob[] | null>(null)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
   const [composeOpen, setComposeOpen] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
@@ -39,7 +44,10 @@ export default function Dashboard() {
 
   const ctx: DashboardOutletContext = {
     search,
-    refreshKey: 0,
+    refreshKey: 0, // or String(refreshKey) if bound to a state variable
+    searchResults,
+    searchLoading,
+    searchError,
   }
 
   // After POST /schedule: merge the created rows into the feed immediately
@@ -49,7 +57,7 @@ export default function Dashboard() {
     const rows = Array.isArray(created)
       ? created
       : // backend returns { emails: [...] }
-        (created as { emails?: unknown[] })?.emails ?? []
+      (created as { emails?: unknown[] })?.emails ?? []
     const jobs: EmailJob[] = (rows as Parameters<typeof toEmailJob>[0][]).map(
       toEmailJob
     )
@@ -67,6 +75,49 @@ export default function Dashboard() {
     }
   }
 
+
+
+  useEffect(() => {
+    const query = search.trim()
+    let cancelled = false
+
+    if (!query) {
+      setSearchResults(null)
+      setSearchLoading(false)
+      setSearchError(null)
+      return
+    }
+
+    setSearchResults(null)
+    setSearchLoading(true)
+    setSearchError(null)
+
+    const timer = setTimeout(async () => {
+      try {
+        const results = await searchEmailsApi(query, idToken)
+
+        if (!cancelled) {
+          setSearchResults(results)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setSearchError(
+            err instanceof Error ? err.message : 'Search failed'
+          )
+        }
+      } finally {
+        if (!cancelled) {
+          setSearchLoading(false)
+        }
+      }
+    }, 350)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [search, idToken])
+
   return (
     <div className="flex h-screen bg-white text-neutral-900">
       <Sidebar
@@ -79,7 +130,6 @@ export default function Dashboard() {
         <Topbar
           search={search}
           onSearch={setSearch}
-          onRefresh={refresh}
         />
 
         <main className="flex-1 overflow-y-auto px-6 lg:px-12">
@@ -140,6 +190,9 @@ export default function Dashboard() {
                   loading,
                   error,
                   refresh,
+                  searchResults,
+                  searchLoading,
+                  searchError,
                 }}
               />
             </div>

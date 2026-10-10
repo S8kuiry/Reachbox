@@ -76,3 +76,26 @@ export async function scheduleEmails(payload: ScheduleEmailPayload, idToken: str
   if (!res.ok) await readError(res, 'Failed to schedule emails')
   return res.json()
 }
+
+
+
+export async function searchEmails(
+  query: string,
+  idToken: string | null
+): Promise<EmailJob[]> {
+  const params = new URLSearchParams({ q: query })
+
+  const res = await fetch(
+    `${API}/emails/search?${params.toString()}`,
+    { headers: headers(idToken) }
+  )
+
+  if (!res.ok) {
+    await readError(res, 'Failed to search emails')
+  }
+
+  const data = await res.json()
+  const rows: ApiEmail[] = data.emails ?? []
+
+  return rows.map(toEmailJob)
+}

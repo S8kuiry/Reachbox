@@ -57,6 +57,9 @@ export interface AuthContextValue {
 export interface DashboardOutletContext {
   search: string
   refreshKey: number
+  searchResults: EmailJob[] | null
+  searchLoading: boolean
+  searchError: string | null
 }
 
 export type EmailKind = 'scheduled' | 'sent'

@@ -1,11 +1,15 @@
-
-import { Worker } from 'bullmq'
+import { Worker, Queue } from 'bullmq'
 import { redisConnection } from './connection'
 import { db } from '../db'
 import { sendEmail } from '../services/mailer'
 import { publishEmailStatus } from '../services/emailEvents'
+import { updateIndexedEmail } from '../services/search.service'
 
 export function startEmailWorker() {
+  // 1. Instantly clear stale waiting jobs on startup
+  const queue = new Queue('emailQueue', { connection: redisConnection })
+  queue.drain(true).catch((err) => console.error('⚠️ Failed to drain stale queue jobs:', err))
+
   const worker = new Worker(
     'emailQueue',
     async (job) => {
@@ -13,28 +17,42 @@ export function startEmailWorker() {
 
       console.log(`📥 Processing email: ${emailId}`)
 
-      // 1. Fetch the email record from PostgreSQL.
+      // 2. Fetch the email record from PostgreSQL
       const email = await db.email.findUnique({
-        where: { id: job.data.emailId },
+        where: { id: emailId },
       })
 
+      // Graceful guard: If the record was deleted, complete cleanly instead of throwing
       if (!email) {
-        throw new Error(`Email ${job.data.emailId} not found`)
+        console.warn(`⚠️ Email ${emailId} no longer exists in database. Skipped job.`)
+        return
       }
 
-      // Avoid sending an email that's already marked as sent.
+      // Avoid sending an email that's already marked as sent
       if (email.status === 'SENT') {
         return
       }
 
-      await db.email.update({
-        where: { id: email.id },
-        data: {
+      // Safe update in case of deletion race conditions
+      try {
+        await db.email.update({
+          where: { id: email.id },
+          data: {
+            status: 'PROCESSING',
+            attempts: { increment: 1 },
+            error: null,
+          },
+        })
+
+        await updateIndexedEmail(email.id, {
           status: 'PROCESSING',
-          attempts: { increment: 1 },
-          error: null,
-        },
-      })
+        }).catch((error) => {
+          console.error(`Failed to update Elasticsearch for ${email.id}:`, error)
+        })
+      } catch {
+        console.warn(`⚠️ Could not set status to PROCESSING for ${email.id}. Record was likely deleted.`)
+        return
+      }
 
       publishEmailStatus(email.ownerId, {
         id: email.id,
@@ -44,8 +62,17 @@ export function startEmailWorker() {
       })
 
       try {
+        // Safe recipient extraction
+        const recipientEmail = Array.isArray(email.recipients)
+          ? email.recipients[0]
+          : email.recipients
+
+        if (!recipientEmail || typeof recipientEmail !== 'string') {
+          throw new Error(`Invalid or missing recipient for email ID: ${email.id}`)
+        }
+
         await sendEmail(
-          email.recipients[0],
+          recipientEmail,
           email.subject,
           email.body
         )
@@ -57,6 +84,13 @@ export function startEmailWorker() {
             sentAt: new Date(),
             error: null,
           },
+        })
+
+        await updateIndexedEmail(updatedEmail.id, {
+          status: 'SENT',
+          sentAt: updatedEmail.sentAt,
+        }).catch((error) => {
+          console.error(`Failed to update Elasticsearch for ${updatedEmail.id}:`, error)
         })
 
         publishEmailStatus(email.ownerId, {
@@ -75,13 +109,24 @@ export function startEmailWorker() {
             status: 'FAILED',
             error: message,
           },
-        })
+        }).catch(() => null) // Ignore update errors if DB row was removed mid-flight
 
-        publishEmailStatus(email.ownerId, {
-          id: updatedEmail.id,
-          status: 'FAILED',
-          error: updatedEmail.error,
-        })
+
+
+        if (updatedEmail) {
+
+          await updateIndexedEmail(updatedEmail.id, {
+            status: 'FAILED',
+          }).catch((error) => {
+            console.error(`Failed to update Elasticsearch for ${updatedEmail.id}:`, error)
+          })
+
+          publishEmailStatus(email.ownerId, {
+            id: updatedEmail.id,
+            status: 'FAILED',
+            error: updatedEmail.error,
+          })
+        }
 
         throw err
       }

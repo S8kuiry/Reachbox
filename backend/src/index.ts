@@ -1,21 +1,31 @@
 import { app } from './app'
 import { env } from './config/env'
 import { startEmailWorker } from './queue/emailWorker'
+import { initElasticsearch } from './services/search.service'
 
 async function bootstrap() {
   console.log('🚀 Starting backend email service...')
 
-  // 1. Start BullMQ Worker
+  // 1. Initialize Elasticsearch Index Safely
+  try {
+    await initElasticsearch()
+  } catch (error) {
+    console.error('⚠️ Elasticsearch initialization warning:', error)
+    // Non-blocking fallback: Log warning so server still boots, 
+    // OR throw error if search is strictly required to run your service.
+  }
+
+  // 2. Start BullMQ Worker
   const worker = startEmailWorker()
   console.log('👷 Email worker listening for jobs...')
 
-  // 2. Start Express Server
+  // 3. Start Express Server
   const server = app.listen(env.PORT, () => {
     console.log(`🌐 Server running on http://localhost:${env.PORT}`)
     console.log(`📊 Bull-Board available at http://localhost:${env.PORT}/admin/queues`)
   })
 
-  // 3. Graceful Shutdown
+  // 4. Graceful Shutdown
   const gracefulShutdown = async (signal: string) => {
     console.log(`\n🛑 Received ${signal}. Shutting down...`)
     await worker.close()

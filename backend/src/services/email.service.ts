@@ -2,6 +2,7 @@ import { db } from '../db'
 import { ScheduleEmailPayload } from '../types'
 import type { EmailStatus } from '@prisma/client'
 import { emailQueue } from '../queue/emailQueue'
+import { indexEmail } from './search.service'
 
 /** Map the API-level kind to Prisma EmailStatus values. */
 /* 'scheduled' intentionally includes PROCESSING so in-flight emails stay
@@ -82,6 +83,17 @@ export async function scheduleEmails(
       },
     }))
   )
+
+  for (const email of createdEmails) {
+  try {
+    await indexEmail(email)
+  } catch (error) {
+    console.error(
+      `Failed to index email ${email.id} in Elasticsearch:`,
+      error
+    )
+  }
+}
 
   // 3. Return the records so the frontend can display them immediately.
   return createdEmails

@@ -9,22 +9,19 @@ interface Props {
 
 export default function Sidebar({ scheduledCount, sentCount, onCompose }: Props) {
   const link = ({ isActive }: { isActive: boolean }) =>
-    `group flex items-center gap-2.5 rounded-md px-3 py-2 text-xs font-medium transition-all my-2 ${
-      isActive
-        ? 'bg-white/10 text-emerald-400 font-semibold'
-        : 'text-neutral-400 hover:bg-white/5 hover:text-neutral-200'
+    `group flex items-center gap-2.5 rounded-md px-3 py-2 text-xs font-medium transition-all my-2 ${isActive
+      ? 'bg-white/10 text-emerald-400 font-semibold'
+      : 'text-neutral-400 hover:bg-white/5 hover:text-neutral-200'
     }`
 
   return (
     <aside className="hidden w-64 shrink-0 flex-col bg-[#111315] p-5 text-white lg:flex border-r border-white/5">
       {/* Brand Header */}
-      <div className="flex items-center gap-2.5 px-1 py-1">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#00AB6B]">
-          <Mail className="h-4 w-4 text-white" />
+      <div className="flex items-center gap-2.5 mb-4 ">
+        <span className="flex h-8 w-8 items-center justify-center rounded-md bg-white text-sm font-semibold text-neutral-950">
+          R
         </span>
-        <span className="text-base font-bold tracking-tight text-white">
-          ReachInbox<span className="text-[#00AB6B]">.</span>
-        </span>
+        <span className="text-base font-medium tracking-tight text-sm">ReachInbox</span>
       </div>
 
       {/* Primary Action Button */}
