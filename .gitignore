@@ -1,0 +1,39 @@
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Node / Frontend Dependencies & Builds
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+dist/
+build/
+.next/
+.nuxt/
+
+# Python / Backend Cache
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+*.sqlite3
+
+# Docker & Container Cache
+.docker/
+*.tar
+
+# IDE & OS Metadata
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+logs/
+*.log
