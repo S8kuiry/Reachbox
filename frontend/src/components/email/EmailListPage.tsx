@@ -28,6 +28,8 @@ export default function EmailListPage({ kind }: { kind: EmailKind }) {
   const [selectedEmail, setSelectedEmail] = useState<EmailJob | null>(null)
   const [page, setPage] = useState(1)
 
+  const [locallyDeletedIds, setLocallyDeletedIds] = useState<Set<string>>(new Set())
+
   // Keep modal data updated if selected email status changes via SSE
   useEffect(() => {
     if (selectedEmail) {
@@ -45,26 +47,29 @@ export default function EmailListPage({ kind }: { kind: EmailKind }) {
 
 
   const rows = useMemo(() => {
-    const hasQuery = search.trim().length > 0
-    const hasStatusFilter = searchStatus !== 'all'
+  const hasQuery = search.trim().length > 0
+  const hasStatusFilter = searchStatus !== 'all'
 
-    const sourceEmails =
-      hasQuery || hasStatusFilter
-        ? (searchResults ?? [])
-        : emails
+  const sourceEmails =
+    hasQuery || hasStatusFilter
+      ? (searchResults ?? [])
+      : emails
 
-    // An explicit status filter takes priority over the current tab.
-    if (hasStatusFilter) {
-      return sourceEmails
-    }
+  // 1. First, always remove the locally deleted emails from the source pool
+  const activeEmails = sourceEmails.filter((email) => !locallyDeletedIds.has(email.id))
 
-    return sourceEmails.filter((email) =>
-      kind === 'scheduled'
-        ? isScheduledStatus(email.status)
-        : isSentStatus(email.status)
-    )
-  }, [emails, search, searchResults, searchStatus, kind])
+  // 2. If an explicit status filter is selected, return those filtered active emails
+  if (hasStatusFilter) {
+    return activeEmails
+  }
 
+  // 3. Otherwise, filter active emails by the current tab kind ('scheduled' vs 'sent')
+  return activeEmails.filter((email) =>
+    kind === 'scheduled'
+      ? isScheduledStatus(email.status)
+      : isSentStatus(email.status)
+  )
+}, [emails, search, searchResults, searchStatus, kind, locallyDeletedIds])
 
 
   const { idToken } = useAuth()
@@ -87,11 +92,15 @@ export default function EmailListPage({ kind }: { kind: EmailKind }) {
     ev.stopPropagation() // don't open the detail modal
     if (!window.confirm('Delete this email?')) return
 
+     // 👉 1. Instant UI update
+      setLocallyDeletedIds((prev) => new Set(prev).add(id))
+      if (selectedEmail?.id === id) setSelectedEmail(null)
+
     try {
       setDeleting(true)
-      await deleteEmailById(idToken!,id)
+      await deleteEmailById(idToken!, id)
       if (selectedEmail?.id === id) setSelectedEmail(null)
-      await refresh()
+      // await refresh()
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to delete email')
     } finally {
@@ -101,10 +110,19 @@ export default function EmailListPage({ kind }: { kind: EmailKind }) {
 
   const handleDeleteAll = async () => {
     if (!window.confirm(`Delete all ${kind} emails? This cannot be undone.`)) return
+
+    // 👉 1. Instant UI update: add all currently visible row IDs
+    const rowIds = rows.map((r) => r.id)
+    setLocallyDeletedIds((prev) => {
+      const next = new Set(prev)
+      rowIds.forEach((id) => next.add(id))
+      return next
+    })
+    setSelectedEmail(null)
+
     try {
       setDeleting(true)
       await deleteEmailsByStatus(kind, idToken)
-      await refresh()
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to delete emails')
     } finally {

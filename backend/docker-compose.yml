@@ -1,0 +1,70 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: outbox-backend
+    restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    env_file:
+      - .env
+    environment:
+      PORT: "8000"
+      REDIS_URL: redis://redis:6379
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      DATABASE_URL: "postgresql://neondb_owner:npg_AhbfX8na5TDm@ep-patient-rain-b5o71qnm-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require&pgbouncer=true&connection_limit=10"
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://localhost:8000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.0.0
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "curl -fsS http://localhost:9200 >/dev/null || exit 1"
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+volumes:
+  redis_data:
+  elasticsearch_data:
