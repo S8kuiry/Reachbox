@@ -1,7 +1,7 @@
 import { app } from './app'
 import { env } from './config/env'
 import { startEmailWorker } from './queue/emailWorker'
-import { initElasticsearch } from './services/search.service'
+import { indexExistingEmails, initElasticsearch } from './services/search.service'
 
 async function bootstrap() {
   console.log('🚀 Starting backend email service...')
@@ -9,6 +9,7 @@ async function bootstrap() {
   // 1. Initialize Elasticsearch Index Safely
   try {
     await initElasticsearch()
+    await indexExistingEmails()
   } catch (error) {
     console.error('⚠️ Elasticsearch initialization warning:', error)
     // Non-blocking fallback: Log warning so server still boots, 

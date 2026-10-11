@@ -1,4 +1,4 @@
-import { useRef, useState, useMemo, type FormEvent, type KeyboardEvent, type ClipboardEvent } from 'react'
+import { useRef, useState, useMemo, type FormEvent, type KeyboardEvent, type ClipboardEvent, useEffect } from 'react'
 import {
   X,
   Clock,
@@ -43,9 +43,7 @@ export default function ComposeModal({ open, onClose, onScheduled }: Props) {
   const [recipientError, setRecipientError] = useState('')
 
   // Settings
-  const [startTime, setStartTime] = useState(() =>
-    toLocalInput(new Date(Date.now() + 5 * 60000))
-  )
+  const [startTime, setStartTime] = useState(() => toLocalInput(new Date()))
   const [delay, setDelay] = useState<number>(15)
   const [showSettings, setShowSettings] = useState(false)
 
@@ -66,7 +64,6 @@ export default function ComposeModal({ open, onClose, onScheduled }: Props) {
 
   const wordCount = useMemo(() => (body.trim() ? body.trim().split(/\s+/).length : 0), [body])
 
-  if (!open) return null
 
   const reset = () => {
     setSubject('')
@@ -77,6 +74,7 @@ export default function ComposeModal({ open, onClose, onScheduled }: Props) {
     setError('')
     setShowSettings(false)
     setDelay(15)
+
   }
 
   const addRecipients = (rawText: string): string[] => {
@@ -158,8 +156,7 @@ export default function ComposeModal({ open, onClose, onScheduled }: Props) {
           subject: subject.trim(),
           body,
           recipients: finalRecipients,
-          startTime: new Date(startTime).toISOString(),
-          delayBetweenSeconds: Number(delay),
+          startTime: new Date(startTime.replace('T', ' ')).toISOString(), delayBetweenSeconds: Number(delay),
         },
         idToken,
       )
@@ -175,9 +172,16 @@ export default function ComposeModal({ open, onClose, onScheduled }: Props) {
 
   const labelCls = 'text-[11px] font-bold uppercase tracking-tight text-neutral-500'
 
+  // Refresh to the actual current time every time the modal opens
+  useEffect(() => {
+    if (open) setStartTime(toLocalInput(new Date()))
+  }, [open])
+
+
+  if (!open) return null
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-6 "
       onClick={onClose}
     >
       <form
@@ -340,8 +344,8 @@ export default function ComposeModal({ open, onClose, onScheduled }: Props) {
                           type="button"
                           onClick={() => setDelay(preset.value)}
                           className={`flex flex-col items-center rounded-lg border px-2 py-2 transition ${active
-                              ? 'border-emerald-600 bg-emerald-600 text-white'
-                              : 'border-neutral-300 bg-white text-neutral-900 hover:border-emerald-600 hover:bg-emerald-50'
+                            ? 'border-emerald-600 bg-emerald-600 text-white'
+                            : 'border-neutral-300 bg-white text-neutral-900 hover:border-emerald-600 hover:bg-emerald-50'
                             }`}
                         >
                           <span className="text-sm font-bold">{preset.label}</span>
@@ -406,8 +410,8 @@ export default function ComposeModal({ open, onClose, onScheduled }: Props) {
             type="button"
             onClick={() => setShowSettings(!showSettings)}
             className={`inline-flex items-center gap-2 rounded-lg border px-3.5 py-2.5 text-xs font-bold transition ${showSettings
-                ? 'border-[#161616] bg-[#161616] text-white'
-                : 'border-neutral-400 bg-white text-neutral-800 hover:border-neutral-900'
+              ? 'border-[#161616] bg-[#161616] text-white'
+              : 'border-neutral-400 bg-white text-neutral-800 hover:border-neutral-900'
               }`}
           >
             <Clock className="h-4 w-4" />

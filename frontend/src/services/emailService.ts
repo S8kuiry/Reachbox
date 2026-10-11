@@ -1,4 +1,4 @@
-import type { EmailJob, EmailKind, ScheduleEmailPayload } from '../types'
+import type { EmailJob, EmailKind, EmailSearchField, EmailSearchStatus, ScheduleEmailPayload } from '../types'
 const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api'
 
 
@@ -79,23 +79,62 @@ export async function scheduleEmails(payload: ScheduleEmailPayload, idToken: str
 
 
 
+
 export async function searchEmails(
   query: string,
-  idToken: string | null
+  idToken: string | null,
+  field: EmailSearchField = 'all',
+  status: EmailSearchStatus = 'all',
 ): Promise<EmailJob[]> {
-  const params = new URLSearchParams({ q: query })
+  const params = new URLSearchParams({
+    q: query,
+    field,
+    status,
+  })
 
   const res = await fetch(
     `${API}/emails/search?${params.toString()}`,
-    { headers: headers(idToken) }
+    { headers: headers(idToken) },
   )
 
-  if (!res.ok) {
-    await readError(res, 'Failed to search emails')
-  }
+  if (!res.ok) await readError(res, 'Failed to search emails')
 
   const data = await res.json()
   const rows: ApiEmail[] = data.emails ?? []
 
   return rows.map(toEmailJob)
+}
+
+
+export async  function deleteEmailById(
+  idToken: string | null,
+  emailId:string
+):Promise<{ message: string }>{
+  const res = await fetch(`${API}/emails/${encodeURIComponent(emailId)}`,{
+    method:'DELETE',
+    headers: headers(idToken),
+  })
+  if (!res.ok) await readError(res, 'Failed to delete email')
+
+  return res.json()
+
+}
+
+
+export async function deleteEmailsByStatus(
+  status: EmailKind | undefined,
+  idToken: string | null,
+): Promise<{ message: string; count: number }> {
+  const params = new URLSearchParams()
+  if (status) params.set('status', status)
+
+  const qs = params.toString()
+  const res = await fetch(`${API}/emails${qs ? `?${qs}` : ''}`, {
+    method: 'DELETE',
+    headers: headers(idToken),
+  })
+
+  if (!res.ok) await readError(res, 'Failed to delete emails')
+
+  return res.json()
 }

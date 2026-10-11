@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Clock, Send } from 'lucide-react'
-import type { DashboardOutletContext, EmailJob } from '../types'
+import type { DashboardOutletContext, EmailJob, EmailSearchField, EmailSearchStatus } from '../types'
 import Sidebar from '../components/layout/Sidebar'
 import Topbar from '../components/layout/Topbar'
 import ComposeModal from '../components/email/ComposeModal'
@@ -19,6 +19,12 @@ export default function Dashboard() {
   const [composeOpen, setComposeOpen] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
+
+  const [searchField, setSearchField] =
+    useState<EmailSearchField>('all')
+
+  const [searchStatus, setSearchStatus] =
+    useState<EmailSearchStatus>('all')
 
   const {
     emails,
@@ -48,6 +54,8 @@ export default function Dashboard() {
     searchResults,
     searchLoading,
     searchError,
+    searchField,
+    searchStatus
   }
 
   // After POST /schedule: merge the created rows into the feed immediately
@@ -77,11 +85,13 @@ export default function Dashboard() {
 
 
 
+
+
   useEffect(() => {
     const query = search.trim()
     let cancelled = false
 
-    if (!query) {
+    if (!query && searchStatus === 'all') {
       setSearchResults(null)
       setSearchLoading(false)
       setSearchError(null)
@@ -94,8 +104,12 @@ export default function Dashboard() {
 
     const timer = setTimeout(async () => {
       try {
-        const results = await searchEmailsApi(query, idToken)
-
+        const results = await searchEmailsApi(
+          query,
+          idToken,
+          searchField,
+          searchStatus,
+        )
         if (!cancelled) {
           setSearchResults(results)
         }
@@ -116,10 +130,11 @@ export default function Dashboard() {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [search, idToken])
+  }, [search, idToken, searchField, searchStatus])
+
 
   return (
-    <div className="flex h-screen bg-white text-neutral-900">
+    <div className="flex h-screen bg-white/10 text-neutral-900">
       <Sidebar
         scheduledCount={scheduledEmails.length}
         sentCount={sentEmails.length}
@@ -127,14 +142,19 @@ export default function Dashboard() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
+
         <Topbar
           search={search}
           onSearch={setSearch}
+          searchField={searchField}
+          onSearchFieldChange={setSearchField}
+          searchStatus={searchStatus}
+          onSearchStatusChange={setSearchStatus}
         />
 
         <main className="flex-1 overflow-y-auto px-6 lg:px-12">
           <div className="mx-auto max-w-8xl">
-            <div className="mt-6 mb-8 flex flex-col justify-between gap-4 border-b border-neutral-200/80 pb-4 sm:flex-row sm:items-center">
+            <div className="mt-4 mb-6 flex flex-col justify-between gap-4 border-b border-neutral-200/80 pb-4 sm:flex-row sm:items-center">
               <div>
                 <h1 className="text-2xl font-bold tracking-tight text-neutral-950">
                   Your email workspace
@@ -193,6 +213,8 @@ export default function Dashboard() {
                   searchResults,
                   searchLoading,
                   searchError,
+                  searchStatus,
+                  searchField
                 }}
               />
             </div>

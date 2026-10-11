@@ -60,6 +60,8 @@ export interface DashboardOutletContext {
   searchResults: EmailJob[] | null
   searchLoading: boolean
   searchError: string | null
+  searchField: EmailSearchField
+searchStatus: EmailSearchStatus
 }
 
 export type EmailKind = 'scheduled' | 'sent'
@@ -76,3 +78,20 @@ export const isSentStatus = (status: string) => {
   const s = status?.toLowerCase()
   return s === 'sent' || s === 'failed'
 }
+
+
+
+
+export type EmailSearchField =
+  | 'all'
+  | 'recipient'
+  | 'sender'
+  | 'subject'
+  | 'body'
+
+export type EmailSearchStatus =
+  | 'all'
+  | 'scheduled'
+  | 'processing'
+  | 'sent'
+  | 'failed'

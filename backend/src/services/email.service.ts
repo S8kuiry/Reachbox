@@ -2,7 +2,7 @@ import { db } from '../db'
 import { ScheduleEmailPayload } from '../types'
 import type { EmailStatus } from '@prisma/client'
 import { emailQueue } from '../queue/emailQueue'
-import { indexEmail } from './search.service'
+import { deleteIndexedEmail, indexEmail } from './search.service'
 
 /** Map the API-level kind to Prisma EmailStatus values. */
 /* 'scheduled' intentionally includes PROCESSING so in-flight emails stay
@@ -80,6 +80,7 @@ export async function scheduleEmails(
           0,
           email.scheduledAt.getTime() - Date.now()
         ),
+        removeOnComplete: true, // 👈 Clears from Redis on success
       },
     }))
   )
@@ -136,3 +137,59 @@ export async function listEmails(
     },
   }
 } 
+
+
+/**
+ * Deletes a single email by ID for a user.
+ */
+export async function deleteEmail(userId: string, emailId: string) {
+  const email = await db.email.findFirst({
+    where: { id: emailId, ownerId: userId },
+  })
+
+  if (!email) {
+    throw new Error('Email not found or unauthorized')
+  }
+
+  // 1. Delete from PostgreSQL
+  await db.email.delete({
+    where: { id: emailId },
+  })
+
+  // 2. Instant sync with Elasticsearch
+  await deleteIndexedEmail(emailId)
+
+  return { success: true, id: emailId }
+}
+
+/**
+ * Deletes all emails belonging to a user (optionally filtered by status).
+ */
+export async function deleteAllEmails(userId: string, status?: 'scheduled' | 'sent' | 'failed') {
+  const where = {
+    ownerId: userId,
+    ...(status ? { status: { in: STATUS_MAP[status] } } : {}),
+  }
+
+  // Fetch IDs first so we can purge them from Elasticsearch
+  const emailsToDelete = await db.email.findMany({
+    where,
+    select: { id: true },
+  })
+
+  const emailIds = emailsToDelete.map((e) => e.id)
+
+  if (emailIds.length === 0) {
+    return { count: 0 }
+  }
+
+  // 1. Delete from PostgreSQL
+  await db.email.deleteMany({
+    where: { id: { in: emailIds } },
+  })
+
+  // 2. Instant sync: Purge all from Elasticsearch in parallel
+  await Promise.all(emailIds.map((id) => deleteIndexedEmail(id)))
+
+  return { count: emailIds.length }
+}

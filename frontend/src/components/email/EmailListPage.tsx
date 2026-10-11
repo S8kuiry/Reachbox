@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from 'react'
 import { useOutletContext } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Clock, ArrowUpRight, Send, RefreshCw } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Clock, ArrowUpRight, Send, RefreshCw, Trash2 } from 'lucide-react'
 import type { DashboardOutletContext, EmailJob, EmailKind } from '../../types'
 import { isScheduledStatus, isSentStatus } from '../../types'
 import { formatDateTime, initials, nameFromEmail } from '../../utils/format'
@@ -8,12 +8,14 @@ import Spinner from '../ui/Spinner'
 import StatusBadge from '../ui/StatusBadge'
 import EmptyState from '../ui/EmptyState'
 import EmailDetailModal from './EmailDetailModal'
+import { useAuth } from '../../context/AuthContext'
+import { deleteEmailById, deleteEmailsByStatus } from '../../services/emailService'
 
 const PAGE_SIZE = 10
 
 export default function EmailListPage({ kind }: { kind: EmailKind }) {
   const { search, emails, loading, error, refresh, searchResults,
-    searchLoading,
+    searchLoading, searchStatus,
     searchError, } = useOutletContext<
       DashboardOutletContext & {
         emails: EmailJob[]
@@ -41,19 +43,32 @@ export default function EmailListPage({ kind }: { kind: EmailKind }) {
 
   // Filter emails by page kind ('scheduled' vs 'sent') AND search query
 
+
   const rows = useMemo(() => {
-    const q = search.trim()
-    const sourceEmails = q ? (searchResults ?? []) : emails
+    const hasQuery = search.trim().length > 0
+    const hasStatusFilter = searchStatus !== 'all'
 
-    return sourceEmails.filter((e) =>
+    const sourceEmails =
+      hasQuery || hasStatusFilter
+        ? (searchResults ?? [])
+        : emails
+
+    // An explicit status filter takes priority over the current tab.
+    if (hasStatusFilter) {
+      return sourceEmails
+    }
+
+    return sourceEmails.filter((email) =>
       kind === 'scheduled'
-        ? isScheduledStatus(e.status)
-        : isSentStatus(e.status)
+        ? isScheduledStatus(email.status)
+        : isSentStatus(email.status)
     )
-  }, [emails, search, searchResults, kind])
+  }, [emails, search, searchResults, searchStatus, kind])
 
 
 
+  const { idToken } = useAuth()
+  const [deleting, setDeleting] = useState(false)
   const isSearching = search.trim().length > 0
   const isLoading = isSearching ? searchLoading : loading
   const displayError = isSearching ? searchError : error
@@ -67,6 +82,36 @@ export default function EmailListPage({ kind }: { kind: EmailKind }) {
 
   const timeLabel = kind === 'scheduled' ? 'Scheduled for' : 'Sent at'
 
+
+  const handleDeleteOne = async (ev: React.MouseEvent, id: string) => {
+    ev.stopPropagation() // don't open the detail modal
+    if (!window.confirm('Delete this email?')) return
+
+    try {
+      setDeleting(true)
+      await deleteEmailById(idToken!,id)
+      if (selectedEmail?.id === id) setSelectedEmail(null)
+      await refresh()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete email')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const handleDeleteAll = async () => {
+    if (!window.confirm(`Delete all ${kind} emails? This cannot be undone.`)) return
+    try {
+      setDeleting(true)
+      await deleteEmailsByStatus(kind, idToken)
+      await refresh()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete emails')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <>
       <div className="overflow-hidden rounded-xl border border-neutral-200/90 bg-neutral-50/50 shadow-sm">
@@ -77,18 +122,28 @@ export default function EmailListPage({ kind }: { kind: EmailKind }) {
           <span>{timeLabel}</span>
           <div className="flex items-center justify-between">
             <span>Status</span>
-            <button
-              onClick={refresh}
-              title="Refresh list"
-              className="text-neutral-400 hover:text-neutral-700 transition-colors"
-            >
-              <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleDeleteAll}
+                disabled={deleting || rows.length === 0}
+                title={`Delete all ${kind} emails`}
+                className="text-neutral-400 hover:text-red-600 transition-colors disabled:opacity-40"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+              <button
+                onClick={refresh}
+                title="Refresh list"
+                className="text-neutral-400 hover:text-neutral-700 transition-colors"
+              >
+                <RefreshCw className={`h-3 w-3 ${isLoading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Content Area */}
-        {loading && rows.length === 0 ? (
+        {isLoading && rows.length === 0 ? (
           <div className="flex items-center justify-center gap-2.5 py-20 bg-white text-[#00AB6B]">
             <Spinner />
             <span className="text-xs font-medium text-neutral-600">Loading emails…</span>
@@ -159,7 +214,17 @@ export default function EmailListPage({ kind }: { kind: EmailKind }) {
                   {/* Status & Action Arrow */}
                   <div className="flex items-center justify-between">
                     <StatusBadge status={e.status} />
-                    <ArrowUpRight className="h-4 w-4 text-neutral-400 transition-all group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-neutral-800" />
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={(ev) => handleDeleteOne(ev, e.id)}
+                        disabled={deleting}
+                        title="Delete email"
+                        className="text-neutral-400 hover:text-red-600 transition-colors disabled:opacity-40"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                      <ArrowUpRight className="h-4 w-4 text-neutral-400 transition-all group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-neutral-800" />
+                    </div>
                   </div>
                 </li>
               ))}

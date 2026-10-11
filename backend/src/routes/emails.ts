@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { requireAuth } from '../middleware/auth'
-import { scheduleEmails, listEmails } from '../services/email.service'
+import { scheduleEmails, listEmails, deleteAllEmails, deleteEmail } from '../services/email.service'
 import { searchEmails } from '../services/search.service'
 import { addEmailClient } from '../services/emailEvents'
 
@@ -82,18 +82,45 @@ emailRouter.get('/', requireAuth, async (req, res, next) => {
 emailRouter.get('/search', requireAuth, async (req, res, next) => {
   try {
     const query = String(req.query.q ?? '').trim()
+    const field = String(req.query.field ?? 'all') as
+      'all' | 'recipient' | 'sender' | 'subject' | 'body'
+    const status = String(req.query.status ?? 'all') as
+      'all' | 'scheduled' | 'processing' | 'sent' | 'failed'
 
-    if (!query) {
-      res.status(400).json({
-        error: 'Search query is required',
-      })
-      return
-    }
-
-    const emails = await searchEmails(req.user!.id, query)
-
+    // Query may be empty when only a status filter is chosen
+    const emails = await searchEmails(req.user!.id, query, field, status)
     res.json({ emails })
   } catch (error) {
     next(error)
+  }
+})
+
+// DELETE /api/emails/:id - Delete a single email by ID
+emailRouter.delete('/:id', requireAuth, async (req, res, next) => {
+  try {
+    const rawId = req.params.id
+    const id = Array.isArray(rawId) ? rawId[0] : rawId
+    if (!id) {
+      res.status(400).json({ error: 'Email id is required' })
+      return
+    }
+    const result = await deleteEmail(req.user!.id, id)
+    res.json({ message: 'Email deleted successfully', ...result })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// DELETE /api/emails - Delete all emails (or filter by status query param)
+emailRouter.delete('/', requireAuth, async (req, res, next) => {
+  try {
+    const { status } = req.query
+    const result = await deleteAllEmails(
+      req.user!.id,
+      status as 'scheduled' | 'sent' | 'failed' | undefined
+    )
+    res.json({ message: `Successfully deleted ${result.count} email(s)`, ...result })
+  } catch (err) {
+    next(err)
   }
 })
